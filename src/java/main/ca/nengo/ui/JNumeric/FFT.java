@@ -1,3 +1,5 @@
+package ca.nengo.ui.JNumeric;
+
 /**
 * JNumeric - a Jython port of Numerical Java
 * Current Maintainer: Daniel Lemire, Ph.D.
@@ -8,15 +10,5 @@
 *
 */
 
-package ca.nengo.ui.JNumeric;
-import org.python.core.*;
 
-// XXX migrate various pieces of PyMultiarray to here.
-public class GeneralUfunc extends PyObject  {
-  public GeneralUfunc() {
-    super(PyType.fromClass(GeneralUfunc.class)) ;
-    this.javaProxy = this ;
-  }
-
-}
-
+public class FFT extends JN_FFT {}
