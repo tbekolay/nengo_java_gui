@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
+	<classpathentry kind="lib" path="../simulator/lib/qdox-1.6.3.jar"/>
+	<classpathentry kind="lib" path="../simulator/lib/log4j-1.2.16.jar"/>
+	<classpathentry kind="lib" path="../simulator/lib/jfreechart-1.0.1.jar"/>
 	<classpathentry kind="src" path="src/java/main"/>
 	<classpathentry kind="src" path="python"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/simulator"/>
