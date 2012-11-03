@@ -46,6 +46,6 @@
 	<classpathentry kind="lib" path="lib/analysis/junit.jar"/>
 	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
 	<classpathentry combineaccessrules="false" kind="src" path="/simulator"/>
-	<classpathentry kind="lib" path="/home/ehunsber/workspace/nengo/simulator-ui/lib/itextpdf-5.3.4.jar"/>
+	<classpathentry kind="lib" path="lib/itextpdf-5.3.4.jar"/>
 	<classpathentry kind="output" path="bin"/>
 </classpath>
