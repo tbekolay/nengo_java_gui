@@ -99,6 +99,8 @@ import ca.nengo.ui.util.ScriptWorldWrapper;
 import ca.nengo.ui.world.NengoWorld;
 import ca.nengo.util.Environment;
 
+import com.apple.eawt.Application;
+
 /**
  * Top level instance of the NeoGraphics application
  * 
@@ -125,7 +127,7 @@ public class NengoGraphics extends AppFrame implements NodeContainer {
      */
     public static final String ABOUT =
             "<H3>" + APP_NAME + "</H3>"
-                    + "www.nengo.ca"
+                    + "<a href=http://www.nengo.ca>www.nengo.ca</a>"
                     + "<p>&copy; Centre for Theoretical Neuroscience (ctn.uwaterloo.ca) 2006-2012</p>"
                     + "<b>Contributors:</b> Bryan&nbsp;Tripp, Shu&nbsp;Wu, Chris&nbsp;Eliasmith, Terry&nbsp;Stewart, James&nbsp;Bergstra, "
                     + "Trevor&nbsp;Bekolay, Dan&nbsp;Rasmussen, Xuan&nbsp;Choo, Travis&nbsp;DeWolf, "
@@ -178,6 +180,8 @@ public class NengoGraphics extends AppFrame implements NodeContainer {
      */
     public NengoGraphics() {
         super();
+
+        Application.getApplication().setAboutHandler(this);
 
         // Setup icon
         try {
