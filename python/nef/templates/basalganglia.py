@@ -54,3 +54,5 @@ def make(net,name='Basal Ganglia',dimensions=1, neurons=100,pstc=0.01,netbg=None
     templates = net.network.getMetaData("templates")
     templates.add(name)
 
+    return netbg
+
