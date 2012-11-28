@@ -19,7 +19,6 @@ from java.util import HashMap
 import pdfs
 import generators
 import functions
-import array
 import random
 import inspect
 import log
