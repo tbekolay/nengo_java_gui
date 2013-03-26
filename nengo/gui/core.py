@@ -97,6 +97,36 @@ class Nengo(JFrame, MacAppListener, NodeContainer):
                   "(http://nengo.ca/docs/html/index.html)<BR>"
                   "<a href=\"http://nengo.ca/faq\">"
                   "Frequently Asked Questions</a> (http://nengo.ca/faq)")
+    
+    VERSION = 2.0
+
+    # String used in the UI to identify Nengo
+    APP_NAME = "Nengo version " + str(VERSION)
+
+    # Description of Nengo to be shown in the "About" Dialog box
+    ABOUT = ("<H3>" + Nengo.APP_NAME + "</H3>"
+             "<a href=http://www.nengo.ca>www.nengo.ca</a>"
+             "<p>&copy; Centre for Theoretical Neuroscience (ctn.uwaterloo.ca) 2006-2012</p>"
+             "<b>Contributors:</b> Bryan&nbsp;Tripp, Shu&nbsp;Wu, Chris&nbsp;Eliasmith, Terry&nbsp;Stewart, James&nbsp;Bergstra, "
+             "Trevor&nbsp;Bekolay, Dan&nbsp;Rasmussen, Xuan&nbsp;Choo, Travis&nbsp;DeWolf, "
+             "Yan&nbsp;Wu, Eric&nbsp;Crawford, Eric&nbsp;Hunsberger, Carter&nbsp;Kolbeck, "
+             "Jonathan&nbsp;Lai, Oliver&nbsp;Trujillo, Peter&nbsp;Blouw, Pete&nbsp;Suma, Patrick&nbsp;Ji, Jeff&nbsp;Orchard</p>"
+             "<p>This product contains several open-source libraries (copyright their respective authors). "
+             "For more information, consult <tt>lib/library-licenses.txt</tt> in the installation directory.</p>"
+             "<p>This product includes software developed by The Apache Software Foundation (http://www.apache.org/).</p>";
+
+    # Use the configure panel in the right side? Otherwise it's a pop-up.
+    CONFIGURE_PLANE_ENABLED = True
+
+    # File extension for Nengo Nodes
+    NEONODE_FILE_EXTENSION = "nef";
+
+    PLUGIN_DIRECTORY = "plugins";
+
+    # The singleton instance of the NengoGraphics object
+    def getInstance(self):
+        Util.Assert(instanceof(UIEnvironment.instance Nengo))
+        return UIEnvironment.instance
 
     def __init__(self):
         self.actionManager
@@ -111,6 +141,25 @@ class Nengo(JFrame, MacAppListener, NodeContainer):
         self.editMenu
         self.runMenu
         
+        self.filechooser
+        self.clipboard
+
+        self.pythonInterpreter
+        self.scriptConsole
+        self.dataListViewer
+        self.templateViewer
+        self.templatePanel
+        self.toolbarPanel
+
+        self.toolbarPane
+        self.templatePane
+        self.configPane
+        self.dataViewerPane
+        self.scriptConsolePane
+        self.splitPanes
+
+        self.progressIndicator
+        
         JFrame.__init__(GraphicsEnvironment.localGraphicsEnvironment
                         .defaultScreenDevice.defaultConfiguration)
         
@@ -123,6 +172,14 @@ class Nengo(JFrame, MacAppListener, NodeContainer):
                 e.printStackTrace()
         else:
             self.initialize()
+
+        # Setup icon
+        try:
+            image = ImageIO.read(self.class.classLoader.resource(
+                "ca/nengo/ui/nengologo256.png"))
+            self.iconImage = image
+        except IOException, e:
+            e.printStackTrace()
 
     def initMenu(self):
         """Initializes the menu."""
@@ -771,32 +828,632 @@ class Nengo(JFrame, MacAppListener, NodeContainer):
         def action(self):
             Plotter.closeAll()
 
-class UserPreferences(Serializable):
-    """Serializable object which contains UI preferences of the application"""
 
-    def __init__(self):
-        self._enableTooltips = True
-        self._gridVisible = True
-        self.isWelcomeScreen = True
 
-    def apply(self, applyTo):
-        applyTo.enableTooltips = self.enableTooltips
-        applyTo.gridVisible = self.gridVisible
+    def setApplication(self, application):
+        application.addApplicationListener(self)
+        application.enabledPreferencesMenu = False
+        icon = BufferedImage(256, 256, BufferedImage.TYPE_INT_ARGB)
+        try:
+            icon = ImageIO.read(self.class.classLoader.getResource("ca/nengo/ui/nengologo256.png"))
+        except IOException, e:
+            e.printStackTrace()
+        application.applicationIconImage = icon
 
-    @property
-    def enableTooltips(self):
-        return self._enableTooltips
+    def setTemplatePanel(self, panel):
+        """template.py calls this function to provide a template bar"""
+        self.templatePanel = panel
 
-    @enableTooltips.setter
-    def enableTooltips(self, enable):
-        self._enableTooltips = enable
-        WorldImpl.tooltipsVisible = self._enableTooltips
+    def setToolbar(self, bar):
+        """toolbar.py calls this function to provide a toolbar"""
+        self.toolbarPanel = bar;
 
-    @property
-    def gridVisible(self):
-        return self._gridVisible
-    
-    @gridVisible.setter
-    def gridVisible(self, visible):
-        self._gridVisible = visible
-        PXGrid.gridVisible = self._gridVisible
+    def NodeContainer getTopNodeContainer(self):
+        window = self.topWindow
+
+        if window is not None and isinstance(window.contents, NodeContainer):
+            return window.contents
+        elif window is None:
+            return self
+
+        return None
+
+    def initialize(self, debug=False):
+        self.clipboard = NengoClipboard()
+        clipboard.addClipboardListener(NengoClipboard.ClipboardListener(
+            clipboardChanged=self.updateEditMenu)
+
+        SelectionHandler.addSelectionListener(SelectionHandler.SelectionListener(
+#            public void selectionChanged(Collection<WorldObject> objs) {
+#                updateEditMenu();
+#                updateRunMenu();
+#                updateScriptConsole();
+#                updateConfigurationPane();
+#            }
+#        });
+
+#        super.initialize();
+
+        uienvironment['DEBUG'] = debug
+
+        self.initializeSimulatorSourceFiles()
+
+        if self.fileChooser is None:
+            FileChooser = NeoFileChooser();
+
+        # Set up Environment variables
+        Environment.userInterface = True
+
+        # Attach listeners for Script Console
+        self.initScriptConsole()
+
+        # Register plugin classes
+        self.registerPlugins()
+
+        self.extendedState = NengoConfigManager.getUserInteger(
+            UserProperties.NengoWindowExtendedState, JFrame.MAXIMIZED_BOTH))
+
+    def initLayout(self, canvas):
+        try:
+            # Tell the UIManager to use the platform look and feel
+            laf = UIManager.systemLookAndFeelClassName()
+            if laf == "com.sun.java.swing.plaf.gtk.GTKLookAndFeel":
+                laf = "javax.swing.plaf.metal.MetalLookAndFeel"
+                desktopfile = File(System.getProperty("user.home") +
+                        "/.local/share/applications/nengo.desktop")
+                if not desktopfile.exists():
+                    defaultdesktop = File(self.class.classLoader.
+                            getResource("ca/nengo/ui/nengo.desktop").path)
+                    Util.copyFile(defaultdesktop, desktopfile)
+                
+                # df = DesktopFile.initialize("nengo", "NengoLauncher")
+                # df.icon = self.class.classLoader.
+                #     getResource("ca/nengo/ui/nengologo256.png").path
+                # df.command = "TODO"
+                # df.update()
+
+            UIManager.lookAndFeel = laf
+
+            # UIManager.put("Slider.paintValue", Boolean.FALSE)
+        except IOException:
+            System.out.println("nengo.desktop not copied.")
+        except UnsupportedLookAndFeelException, e:
+            e.printStackTrace()
+        except ClassNotFoundException, e:
+            e.printStackTrace()
+        except InstantiationException, e:
+            e.printStackTrace()
+        except IllegalAccessException, e:
+            e.printStackTrace()
+
+        System.setProperty("swing.aatext", "true")
+
+        #####################################################
+        ### Create split pane components
+
+        # creating the script console calls all python init stuff
+        # so call it first (make toolbar, etc.)
+        pythonInterpreter = PythonInterpreter()
+        scriptConsole = ScriptConsole(pythonInterpreter)
+        NengoStyle.applyStyle(scriptConsole)
+
+        if self.toolbarPanel is None or self.templatePanel is None:
+            # these should be made and set by template.py and toolbar.py
+            # when the scriptConsole is created, so we shouldn't be here
+            raise NullPointerException("toolbarPanel or templatePanel not created!")
+
+        dataListViewer = DataListView(SimulatorDataModel(), self.scriptConsole)
+
+        templateViewer = JScrollPane(templatePanel,
+                ScrollPaneConstants.VERTICAL_SCROLLBAR_ALWAYS,
+                ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER)
+        templateViewer.verticalScrollBar.unitIncrement = 20
+        templateViewer.revalidate()
+        templateWithScrollbarSize = templateViewer.preferredSize
+        templateViewer.verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED)
+
+        self.contentPane.add(templateViewer, BorderLayout.WEST)
+
+        #####################################################
+        ### Create nested split panes
+        configPane = ConfigurationPane(canvas)
+
+        scriptConsolePane = AuxillarySplitPane(configPane.toJComponent(), scriptConsole,
+                "Script Console", AuxillarySplitPane.Orientation.Bottom)
+
+        dataViewerPane = AuxillarySplitPane(scriptConsolePane, dataListViewer,
+                "Data Viewer", AuxillarySplitPane.Orientation.Left)
+
+        templatePane = AuxillarySplitPane(dataViewerPane, templateViewer,
+                "Templates", AuxillarySplitPane.Orientation.Left,
+                templateWithScrollbarSize, False)
+        templatePane.resizable = False
+        templatePane.auxVisible = True
+
+        toolbarPane = AuxillarySplitPane(templatePane, toolbarPanel,
+                "Toolbar", AuxillarySplitPane.Orientation.Top,
+                toolbarPanel.preferredSize, False)
+        toolbarPane.resizable = False
+        toolbarPane.auxVisible = True
+
+        self.contentPane.add(toolbarPane)
+
+        # Add all panes to the list. The order added controls
+        # the order in the View menu
+        splitPanes = []
+        splitPanes.append(scriptConsolePane)
+        splitPanes.append(dataViewerPane)
+        if CONFIGURE_PLANE_ENABLED:
+            splitPanes.apend(configPane.toJComponent())
+        splitPanes.append(templatePane)
+        splitPanes.append(toolbarPane)
+
+        canvas.requestFocus()
+
+        progressIndicator = ProgressIndicator()
+        self.contentPane.add(progressIndicator, BorderLayout.SOUTH)
+
+    def initScriptConsole(self):
+        self.scriptConsole.addVariable("world", ScriptWorldWrapper(self))
+
+        # add listeners
+        """
+        self.world.ground.addChildrenListener(WorldObject.ChildListener() {
+
+            public void childAdded(WorldObject wo) {
+                if (wo instanceof ModelObject) {
+                    final ModelObject modelObject = ((ModelObject) wo);
+                    //                    final Object model = modelObject.getModel();
+                    final String modelName = modelObject.getName();
+
+                    try {
+                        //scriptConsole.addVariable(modelName, model);
+
+                        modelObject.addPropertyChangeListener(Property.REMOVED_FROM_WORLD,
+                                new WorldObject.Listener() {
+                            public void propertyChanged(Property event) {
+                                scriptConsole.removeVariable(modelName);
+                                modelObject.removePropertyChangeListener(Property.REMOVED_FROM_WORLD,
+                                        this);
+                            }
+                        });
+
+                    } catch (Exception e) {
+                        UserMessages.showError("Error adding network: " + e.getMessage());
+                    }
+                }
+            }
+
+            public void childRemoved(WorldObject wo) {
+                /*
+                 * Do nothing here. We don't remove the variable here directly
+                 * because the network has already been destroyed and no longer
+                 * has a reference to it's model.
+                 */
+
+            }
+
+        });
+        """
+
+    def initializeSimulatorSourceFiles(self):
+        """Find and initialize the main simulator source code."""
+        
+        savedSourceLocation = NengoConfigManager.nengoConfig.getProperty("simulator_source")
+
+        simulatorSource = "../simulator/src/java/main" if savedSourceLocation is None else  savedSourceLocation
+
+        simulatorSourceFile = File(simulatorSource)
+        if not simulatorSourceFile.exists():
+            Util.debugMsg("Could not find simulator source files at "
+                    + simulatorSourceFile.absoluteFile.toString())
+
+        JavaSourceParser.addSource(simulatorSourceFile)
+
+    def registerPlugins(self):
+        try:
+            pluginUrls = []
+            pluginJars = []
+
+            pluginDir = File(PLUGIN_DIRECTORY)
+            pluginUrls.append(pluginDir.toURI().toURL())
+
+            pluginJarFiles = pluginDir.listFiles(FilenameFilter() {}
+                # public boolean accept(File dir, String name) {
+                #        if (name.endsWith("jar")) {
+                #              return true;
+                #        } else {
+                #            return false;
+                #        }
+
+            for jarFile in pluginJarFiles:
+                pluginUrls.append(jarFile.toURI().toURL())
+
+            URLClassLoader urlClassLoader = URLClassLoader(pluginUrls)
+
+            for jarFile in pluginJarFiles:
+                try:
+                    jar = JarFile(jarFile)
+                    pluginJars.append(jar)
+                    entries = jar.entries()
+                    while entries.hasMoreElements():
+                        entry = entries.nextElement()
+                        fileName = entry.name
+                        if fileName.endsWith(".class"): 
+                            try:
+                                className = fileName.substring(0,
+                                    fileName.lastIndexOf('.')).replace('/', '.')
+                                newClass = urlClassLoader.loadClass(className)
+
+                                Util.debugMsg("Registering class: " +
+                                              newClass.name)
+                                ClassRegistry.instance.register(newClass)
+
+                            except ClassNotFoundException,  e:
+                                e.printStackTrace()
+                            except NoClassDefFoundError, e:
+                                # this only occurs for nested classes (i.e.
+                                # those with dollar signs in class name),
+                                # and perhaps only on the Mac
+                                # System.out.println(className)
+                                # e.printStackTrace()
+                                pass
+
+                    pluginUrls.append(jarFile.toURI().toURL())
+                except IOException, e:
+                    e.printStackTrace()
+        except MalformedURLException, e:
+            e.printStackTrace()
+
+    def getNengoWorld(self):
+        self.world
+
+    def constructShortcutKeys(self, shortcuts):
+        super.constructShortcutKeys(shortcuts)
+
+    def promptToSaveModels(self):
+        """Prompt user to save models in NengoGraphics.
+        This is most likely called right before the application is exiting.
+        
+        """
+        saveSuccessful = True
+
+        for wo in self.world.ground.children:
+            if isinstance(wo, UINeoNode):
+                saveAction = SaveNodeAction(wo, True)
+                saveAction.doAction()
+                saveSuccessful = saveSuccessful and saveAction.saveSuccessful
+
+        return saveSuccessful
+
+    def updateEditMenu(self):
+        super.updateEditMenu()
+
+        selectedObjects = SelectionHandler.activeSelection
+
+        if selectedObjects is not None and selectedObjects.size() > 0:
+            selectedArray = []
+            selectedModelObjects = []
+            for obj in selectedObjects:
+                if isinstance(obj, UINeoNode):
+                    selectedArray.append(obj)
+                if isinstacne(obj, ModelObject):
+                    selectedModelObjects.append(obj)
+
+            cutAction = CutAction("Cut", selectedArray)
+            copyAction = CopyAction("Copy", selectedArray)
+            removeAction = RemoveModelAction("Remove", selectedModelObjects)
+        else:
+            cutAction = DisabledAction("Cut", "No object selected")
+            copyAction = DisabledAction("Copy", "No object selected")
+            removeAction = DisabledAction("Remove", "No objects to remove")
+
+        if self.clipboard.hasContents():
+            pasteAction = StandardAction("Paste") {
+#                private static final long serialVersionUID = 1L;
+#                @Override
+#                protected void action() {
+#                    // look for the active mouse handler. If it exists, it should contain
+#                    // the current mouse position (from the mousemoved event), so use this
+#                    // to create a new PasteEvent
+#                    PasteAction a;
+#                    MouseHandler mh = MouseHandler.getActiveMouseHandler();
+#                    if (mh != null) {
+#                        a = new PasteAction("Paste", (NodeContainer)mh.getWorld(), true);
+#                        Point2D pos = mh.getMouseMovedRelativePosition();
+#                        if (pos != null) {
+#                            a.setPosition(pos.getX(), pos.getY());
+#                        }
+#                    } else {
+#                        a = new PasteAction("Paste", NengoGraphics.getInstance(), true);
+#                    }
+#                    a.doAction();
+#                }
+#            };
+        else:
+            pasteAction = DisabledAction("Paste", "No object is in the clipboard")
+
+        editMenu.addAction(copyAction, KeyEvent.VK_C,
+            KeyStroke.getKeyStroke(KeyEvent.VK_C, MENU_SHORTCUT_KEY_MASK))
+        editMenu.addAction(cutAction, KeyEvent.VK_X,
+            KeyStroke.getKeyStroke(KeyEvent.VK_X, MENU_SHORTCUT_KEY_MASK))
+        editMenu.addAction(pasteAction, KeyEvent.VK_V,
+            KeyStroke.getKeyStroke(KeyEvent.VK_V, MENU_SHORTCUT_KEY_MASK))
+        editMenu.addAction(removeAction, KeyEvent.VK_R,
+            KeyStroke.getKeyStroke(KeyEvent.VK_DELETE, 0))
+
+    def updateRunMenu(self):
+        super.updateRunMenu();
+
+        selectedObj = SelectionHandler.activeObject
+        node = None
+
+        if selectedObj is not None:
+            if isinstance(selectedObj, UINeoNode):
+                node = selectedObj
+            elif isinstance(selectedObj, UIProjection):
+                if selectedObj.termination is not None:
+                    node = selectedObj.termination.nodeParent
+                else:
+                    node = selectedObj.originUI.nodeParent
+            elif isinstance(selectedObj, Widget):
+                node = selectedObj.nodeParent
+            elif isinstance(selectedObj, UIProbe):
+                node = selectedObj.probeParent
+
+        if node is not None:
+            while node.networkParent is not None:
+                node = node.networkParent
+            network = node
+
+            simulateAction = RunSimulatorAction("Simulate " + network.name, network)
+            interactivePlotsAction = RunInteractivePlotsAction(network)
+        else:
+            simulateAction = DisabledAction("Simulate", "No object selected")
+            interactivePlotsAction = DisabledAction("Interactive Plots", "No object selected")
+
+        runMenu.addAction(simulateAction, KeyEvent.VK_F4,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F4, 0))
+        runMenu.addAction(interactivePlotsAction, KeyEvent.VK_F5,
+            KeyStroke.getKeyStroke(KeyEvent.VK_F5, 0))
+
+    def createWorld(self):
+        return NengoWorld()
+
+    def addNodeModel(self, node, posX=None, posY=None):
+        if posX or posY:
+            assert posX and posY
+
+        nodeContainer = self.topNodeContainer()
+        if nodeContainer is not self and nodeContainer is not None:
+            # Delegate to the top Node Container in the Application
+            return nodeContainer.addNodeModel(node, posX, posY)
+        elif nodeContainer is self:
+            nodeUI = slef.nengoWorld.addNodeModel(node, posX, posY)
+            try:
+                DragAction.dropNode(nodeUI)
+            except UserCancelledException, e:
+                # the user should not be given a chance to do this
+                raise ContainerException("Unexpected cancellation of action by user")
+            return nodeUI
+        else:
+            raise ContainerException("There are no containers to put this node")
+
+    def captureInDataViewer(self, network):
+        dataListViewer.captureSimulationData(network)
+
+    def configureObject(self, obj):
+        if CONFIGURE_PLANE_ENABLED:
+            configPane.toJComponent().auxVisible = True
+            configPane.configureObj(obj)
+        else:
+            ConfigUtil.configure(nengoinstance, obj)
+
+    def exitAppFrame(self):
+        if self.world.ground.childrenCount > 0:
+            response = JOptionPane.showConfirmDialog(self,
+                    "Save models?", "Exiting " + self.appName,
+                    JOptionPane.YES_NO_CANCEL_OPTION)
+            if response == JOptionPane.YES_OPTION:
+                if not promptToSaveModels():
+                    return
+            elif response == JOptionPane.CANCEL_OPTION or response == JOptionPane.CLOSED_OPTION:
+                # cancel exit
+                return
+
+        self.saveUserConfig()
+        super.exitAppFrame()
+
+    def saveUserConfig(self):
+        NengoConfigManager.setUserProperty(
+            UserProperties.NengoWindowExtendedState, self.extendedState)
+        NengoConfigManager.saveUserConfig()
+
+    def getAboutString(self):
+        return ABOUT
+
+    def getAppName(self):
+        return APP_NAME
+
+    def getAppWindowTitle(self):
+        return "Nengo Workspace"
+
+
+    def getClipboard(self):
+        return self.clipboard
+
+    def getNodeModel(self, name):
+        nodeContainer = self.topNodeContainer()
+        if nodeContainer is not slef and nodeContainer is not None:
+            # Delegate to the top Node Container in the Application
+            return nodeContainer.getNodeModel(name)
+        elif nodeContainer is self:
+            return self.nengoWorld.getNodeModel(name)
+        return None
+
+    def getPythonInterpreter(self):
+        return self.pythonInterpreter
+
+    def getProgressIndicator(self):
+        return self.progressIndicator
+
+    def getScriptConsole(self):
+        return self.scriptConsole
+
+    def isScriptConsoleVisible(self):
+        return self.scriptConsolePane.isAuxVisible()
+
+    def updateScriptConsole(self):
+        scriptConsole.currentObject = SelectionHandler.activeModel
+
+    class ToggleScriptPane(StandardAction):
+        def __init__(self, description, splitPane):
+            StandardAction.__init__(description)
+            self.splitPane = splitPane
+
+        def action(self):
+            self.splitPane.auxVisible = not self.splitPane.isAuxVisible()
+
+    def initFileMenu(self, fileMenu):
+        fileMenu.addAction(CreateModelAction("New Network", self, CNetwork()))
+
+        fileMenu.addAction(OpenNeoFileAction(self), KeyEvent.VK_O,
+            KeyStroke.getKeyStroke(KeyEvent.VK_O, MENU_SHORTCUT_KEY_MASK))
+
+        fileMenu.jMenu.addSeparator()
+
+        fileMenu.addAction(SaveNetworkAction("Save Selected Network"),
+            KeyEvent.VK_S, KeyStroke.getKeyStroke(KeyEvent.VK_S, MENU_SHORTCUT_KEY_MASK))
+
+        fileMenu.addAction(GeneratePDFAction("Save View to PDF"), KeyEvent.VK_P,
+            KeyStroke.getKeyStroke(KeyEvent.VK_P, MENU_SHORTCUT_KEY_MASK))
+
+        fileMenu.addAction(GenerateScriptAction("Generate Script"),
+            KeyEvent.VK_G, KeyStroke.getKeyStroke(KeyEvent.VK_G, MENU_SHORTCUT_KEY_MASK))
+
+        fileMenu.jMenu.addSeparator()
+        fileMenu.addAction(ClearAllAction("Clear all"))
+        fileMenu.jMenu.addSeparator()
+
+    def initViewMenu(self, menuBar):
+        viewMenu = new MenuBuilder("View")
+        viewMenu.jMenu.mnemonic = KeyEvent.VK_V
+        menuBar.add(viewMenu.jMenu)
+
+        for count, splitPane in enumerate(splitPanes):
+            shortCutChar = splitPane.auxTitle.bytes[0]
+
+            viewMenu.addAction(ToggleScriptPane("Toggle " + splitPane.auxTitle, splitPane),
+                    shortCutChar, KeyStroke.getKeyStroke(0x30 + count, MENU_SHORTCUT_KEY_MASK))
+
+        viewMenu.jMenu.addSeparator()
+
+        viewMenu.addAction(ZoomToFitAction("Zoom to fit", self.world,
+            KeyEvent.VK_0, KeyStroke.getKeyStroke(KeyEvent.VK_0, MENU_SHORTCUT_KEY_MASK))
+
+    def localToView(self, localPoint):
+        return self.nengoWorld.localToView(localPoint)
+
+    def removeNodeModel(self, node):
+        modelToDestroy = None
+        for wo in self.world.ground.children:
+            if isinstance(wo, ModelObject):
+                modelObject = wo
+                if modelObject.model == node:
+                    modelToDestroy = modelObject
+                    break
+        if modelToDestroy is not None:
+            modelToDestroy.destroyModel()
+            return True
+        else:
+            return False
+
+    def setDataViewerPaneVisible(self, visible):
+        if dataViewerPane.isAuxVisible() != visible:
+            ToggleScriptPane(None, dataViewerPane).doAction()
+
+    def setDataViewerVisible(self, isVisible):
+        dataViewerPane.auxVisible = isVisible
+
+    def getConfigPane(self):
+        return self.configPane
+
+    def updateConfigurationPane(self):
+        if configPane.toJComponent().isAuxVisible():
+            configPane.configureObj(SelectionHandler.activeModel)
+
+    def toggleConfigPane(self):
+        pane = configPane.toJComponent()
+        pane.auxVisible = not pane.isAuxVisible()
+        self.updateConfigurationPane()
+
+    class ConfigurationPane(object):
+        def __init__(self, mainPanel):
+            self.auxSplitPane = AuxillarySplitPane(mainPanel, None, "Inspector",
+                AuxillarySplitPane.Orientation.Right)
+            self.auxSplitPane.auxPaneWrapper.background = NengoStyle.COLOR_CONFIGURE_BACKGROUND);
+            self.currentObj = None
+
+        def configureObj(self, obj):
+            if obj == self.currentObj:
+                return
+            self.currentObj = obj
+
+            location = auxSplitPane.dividerLocation
+            configurationPane = ConfigUtil.createConfigurationPane(obj)
+            configurationPane.tree.background = NengoStyle.COLOR_CONFIGURE_BACKGROUND
+
+            if obj is None:
+                auxSplitPane.auxPane = configurationPane, "Inspector");
+            else:
+                # Style.applyStyle(configurationPane.tree)
+                # Style.applyStyle(configurationPane.cellRenderer)
+
+                if hasattr(obj, 'name'):
+                    name = obj.name
+                else:
+                    name = "Inspector"
+                auxSplitPane.setAuxPane(configurationPane,
+                    name + " (" + obj.class.simpleName + ")")
+
+            auxSplitPane.dividerLocation = location
+
+        def toJComponent(self):
+            return self.auxSplitPane
+
+
+class RunNetworkAction(StandardAction):
+    """Runs the closest network to the currently selected obj."""
+    def action(self):
+        selectedNode = SelectionHandler.activeObject
+
+        selectedNetwork = UINetwork.getClosestNetwork(selectedNode)
+        if selectedNetwork is not None:
+            runAction = RunSimulatorAction("run", selectedNetwork)
+            runAction.doAction()
+        else:
+            raise ActionException("No parent network to run, please select a node")
+
+class SaveNetworkAction(StandardAction):
+    """Saves the closest network to the currently selected object"""
+    def action(self):
+        selectedNode = SelectionHandler.activeObject
+
+        selectedNetwork = UINetwork.getClosestNetwork(selectedNode)
+        if selectedNetwork is not None:
+            saveNodeAction = SaveNodeAction(selectedNetwork)
+            saveNodeAction.doAction()
+        else:
+            raise ActionException("No parent network to save, please select a node")
+
+class GenerateScriptAction(StandardAction):
+    """Generates a script for the highest network including the selected object"""
+    def action(self):
+        selectedNode = SelectionHandler.activeObject
+
+        selectedNetwork = UINetwork.getClosestNetwork(selectedNode)
+        if selectedNetwork is not None:
+            generatePythonScriptAction = GeneratePythonScriptAction(selectedNetwork)
+            generatePythonScriptAction.doAction()
+        else:
+            raise ActionException("No parent network to save, please select a node")
