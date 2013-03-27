@@ -1457,3 +1457,10 @@ class GenerateScriptAction(StandardAction):
             generatePythonScriptAction.doAction()
         else:
             raise ActionException("No parent network to save, please select a node")
+
+
+class ShortcutKey(object):
+    def __init__(self, modifiers, keycode, action):
+        self.modifiers = modifiers
+        self.keycode = keycode
+        self.action = action
