@@ -135,3 +135,15 @@ class TargetAction(SwingAction):
             self.action(self.getTarget(), event)
         else:
             self.action(self.getTarget())
+
+
+class DisabledAction(StandardAction):
+    def __init__(self, description, disable_message):
+        StandardAction.__init__(self, description)
+        self.disable_message = disable_message
+        self.enabled = False
+
+    def action(self):
+        messages.showWarning(self.disable_message)
+
+
