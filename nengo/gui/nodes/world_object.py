@@ -88,12 +88,8 @@ class WorldObject(object):
     def addActivity(self, activity):
         self.pnode.addActivity(activity)
 
-    public void addChildrenListener(ChildListener listener) {
-        if (childListeners.contains(listener)) {
-            throw new InvalidParameterException();
-        }
-        childListeners.add(listener);
-    }
+    # addAttribute
+
     def addChild(self, wo, index=-1):
         if not isinstance(wo, WorldObject):
             raise TypeError, "Invalid child object."
@@ -234,7 +230,7 @@ class WorldObject(object):
             if isinstance(node, PiccoloNodeInWorld and node.visible):
                 intersectingObjects.append(node.worldObject)
 
-        return interesectingObjects
+        return intersectingObjects
 
     @property
     def bounds(self):
