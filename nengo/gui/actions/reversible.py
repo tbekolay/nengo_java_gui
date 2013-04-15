@@ -60,6 +60,71 @@ class ReversibleAction(StandardAction):
         else:
             SwingUtilities.invokeLater(RunWrapper(self.undoInternal))
 
+#import java.util.Vector;
+
+#import ca.nengo.ui.lib.AppFrame;
+#import ca.nengo.ui.lib.util.UserMessages;
+
+class ReversableActionManager(object):
+    """Manages reversable actions."""
+
+    # Max number of undo steps to reference
+    MAX_UNDO_ACTIONS = 5
+
+
+    def __init__(self, parent):
+        self.parent = parent
+        self.reversibleActions = []
+        self.undoStepCount = 0
+
+    def updateParent(self):
+        """Updates the application parent that reversable actions have changed."""
+        self.parent.reversibleActionsUpdated()
+
+    def addReversibleAction(self, action):
+        while self.undoStepCount > 0:
+            del self.reversibleActions[-1]
+            self.undoStepCount -= 1
+        self.reversibleActions.append(action)
+
+        if len(self.reversibleActions) > self.MAX_UNDO_ACTIONS:
+            self.reversibleActions[0].finalizeAction()
+            del self.reversibleActions[0]
+        self.updateParent()
+
+    def canRedo(self):
+        return self.undoStepCount > 0
+
+    def canUndo(self):
+        return len(self.reversibleActions) - self.undoStepCount > 0
+
+    def getRedoActionDescription(self):
+        if self.canRedo():
+            return self.reversibleActions[-self.undoStepCount].description
+        else:
+            return "None"
+
+    def getUndoActioNDescription(self):
+        if self.canUndo():
+            return self.reversibleActions[-1 - self.undoStepCount].description
+        else:
+            return "None"
+
+    def redoAction(self):
+        action = self.reversibleActions[-self.undoStepCount]
+        self.undoStepCount -= 1
+        action.doAction()
+        self.updateParent()
+
+    def undoAction(self):
+        if self.canUndo():
+            action = self.reversibleActions[-1 - self.undoStepCount]
+            self.undoStepCount += 1
+            action.undoAction()
+        else:
+            UserMessages.showError("Cannot undo anymore steps")
+        self.updateParent()
+
 
 class DragAction(ReversibleAction):
     """Action which allows the dragging of objects by the selection handler
@@ -176,3 +241,195 @@ class ObjectState(object):
     def setFinalState(self, parent, offset):
         self.final_parent = parent
         self.final_offset = offset
+
+
+# import java.util.Map.Entry;
+
+# import ca.nengo.model.SimulationException;
+# import ca.nengo.ui.lib.actions.ActionException;
+# import ca.nengo.ui.lib.actions.ReversableAction;
+# import ca.nengo.ui.models.UINeoNode;
+# import ca.nengo.ui.models.nodes.widgets.UIProbe;
+
+class AddProbeAction(ReversibleAction):
+    def __init__(self, node, state):
+        self.node = node
+        self.state = state
+        ReversibleAction.__init__(self.state.key + " - " + self.state.value)
+        self.probeCreated = None
+
+    def action(self):
+        try:
+            self.probeCreated = self.node.addProbe(self.state.key)
+        except Exception, e:
+            raise ValueError("Probe could not be added: " + e.message, True, e)
+
+    def undo(self):
+        self.node.removeProbe(self.probeCreated)
+
+# import java.util.Collection;
+# import java.util.HashMap;
+
+# import javax.swing.JOptionPane;
+
+# import ca.nengo.model.SimulationException;
+# import ca.nengo.ui.lib.actions.ActionException;
+# import ca.nengo.ui.lib.actions.ReversableAction;
+# import ca.nengo.ui.lib.objects.models.ModelObject;
+# import ca.nengo.ui.lib.util.UIEnvironment;
+# import ca.nengo.ui.lib.util.UserMessages;
+# import ca.nengo.ui.models.UINeoNode;
+# import ca.nengo.ui.models.nodes.widgets.UIProbe;
+
+
+class AddProbesAction(ReversibleAction):
+    def __init__(self, nodes):
+        ReversibleAction.__init__(self, "Add probes")
+        self.createdProbes = {}
+        self.nodes = nodes
+
+    def action(self):
+        stateName = JOptionPane.showInputDialog(nengoinstance,
+                "State name to probe (Case Sensitive): ",
+                "Adding probes", JOptionPane.QUESTION_MESSAGE)
+
+        if stateName is not None and stateName != "":
+            successCount = 0
+            failed = 0
+
+            for node in self.nodes:
+                if isinstance(node, UINeoNode):
+                    try:
+                        probeCreated = node.addProbe(stateName)
+                        self.createdProbes[node] = probeCreated
+                        successCount += 1
+                    except:
+                        failed += 1
+
+            if failed > 0:
+                UserMessages.showWarning(successCount
+                        + " probes were successfully added. <BR> However it was not added to "
+                        + failed
+                        + " nodes. The state name specified may not exist on those nodes.")
+
+    def undo(self):
+        for node in self.nodes:
+            if isinstance(node, UINeoNode):
+                node.removeProbe(self.createdProbes[node])
+
+
+#import javax.swing.JOptionPane;
+#import javax.swing.SwingUtilities;
+
+#import ca.nengo.model.Node;
+#import ca.nengo.model.StructuralException;
+#import ca.nengo.ui.configurable.ConfigException;
+#import ca.nengo.ui.lib.actions.ActionException;
+#import ca.nengo.ui.lib.actions.ReversableAction;
+#import ca.nengo.ui.lib.actions.UserCancelledException;
+#import ca.nengo.ui.lib.util.UIEnvironment;
+#import ca.nengo.ui.lib.util.UserMessages;
+#import ca.nengo.ui.models.NodeContainer;
+#import ca.nengo.ui.models.NodeContainer.ContainerException;
+#import ca.nengo.ui.models.UINeoNode;
+#import ca.nengo.ui.models.constructors.AbstractConstructable;
+#import ca.nengo.ui.models.constructors.ConstructableNode;
+#import ca.nengo.ui.models.constructors.ModelFactory;
+#import ca.nengo.ui.models.nodes.UINodeViewable;
+
+class CreateModelAction(ReversibleAction):
+
+    @staticmethod
+    def ensureNonConflictingName(node, container):
+        newName = node.name
+        i = 0
+
+        # Check if the name itself is valid
+        while True:
+            try:
+                node.name = newName
+                break
+            except ValueError:
+                newName = JOptionPane.showInputDialog(nengoinstance,
+                        "Names cannot contain '.' or ':', please enter a new name", newName);
+                if newName is None or newName == "":
+                    raise UserCancelledException
+
+        originalName = node.name
+
+        while container.getNodeModel(newName) is not None:
+            # Avoid duplicate names
+            while container.getNodeModel(newName) is not None:
+                i += 1
+                newName = originalName + " (" + i + ")"
+            newName = JOptionPane.showInputDialog(nengoinstance,
+                    "Node already exists, please enter a new name", newName)
+
+            if newName is None or newName == "":
+                raise UserCancelledException
+
+        node.name = newName
+
+    def __init__(self, modeltype, container, constructable):
+        ReversibleAction.__init__(self, "Create new " + modeltype, modeltype, False)
+        self.container = container
+        self.constructable = constructable
+        self.nodeCreated = None
+
+    def add_and_open(self):
+        self.ensureNonConflictingName(self.node, self.container)
+        try:
+            nodeCreated = container.addNodeModel(self.node, self.posX, self.posY)
+            if isinstance(nodeCreated, UINodeViewable):
+                if not isinstance(nodeCreated, UINEFEnsemble):
+                    nodeCreated.openViewer()
+        except ContainerException, e:
+            UserMessages.showWarning("Could not add node: " + e.getMessage())
+        except UserCancelledException, e:
+            e.defaultHandleBehavior()
+
+    def action(self):
+        node = ModelFactory.constructModel(constructable)
+        if node is None:
+            raise Exception("No model was created")
+        elif isinstance(node, Node):
+            SwingUtilities.invokeAndWait(make_runnable(self.add_and_open))
+        else:
+            raise Exception("Can not add model of the type: " + node.class.simpleName)
+
+    def setPosition(self, x, y):
+        self.posX = x
+        self.posY = y
+
+    def undo(self):
+        if self.nodeCreated is not None:
+            self.nodeCreated.destroy()
+
+#import java.awt.geom.Point2D;
+
+#import ca.nengo.ui.lib.misc.WorldLayout;
+#import ca.nengo.ui.lib.world.World;
+#import ca.nengo.ui.lib.world.WorldObject;
+
+
+class LayoutAction(ReversibleAction):
+    def __init__(self, world, description, actionName):
+        ReversibleAction.__init__(self, description, actionName)
+        self.world = world
+
+    def action(self):
+        self.savedLayout = WorldLayout("", self.world, False)
+        self.applyLayout()
+
+    def applyLayout(self):
+        raise NotImplementedError
+
+    def restoreNodePositions(self):
+        for node in self.world.ground.children:
+            savedPosition = self.savedLayout.getPosition(node)
+            if savedPosition is not None:
+                node.setOffset(savedPosition)
+
+    def undo(self):
+        self.restoreNodePositions()
+
