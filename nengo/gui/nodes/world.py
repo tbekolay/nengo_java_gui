@@ -599,3 +599,144 @@ class GroundNode(PXNode):
                 }
             }
         })
+
+#import java.awt.Dimension;
+#import java.lang.reflect.Constructor;
+#import java.lang.reflect.InvocationTargetException;
+
+#import javax.swing.SwingUtilities;
+
+#import ca.nengo.ui.configurable.ConfigException;
+#import ca.nengo.ui.configurable.ConfigResult;
+#import ca.nengo.ui.configurable.Property;
+#import ca.nengo.ui.configurable.descriptors.PInt;
+#import ca.nengo.ui.configurable.managers.ConfigManager;
+#import ca.nengo.ui.configurable.managers.ConfigManager.ConfigMode;
+#import ca.nengo.ui.lib.actions.ActionException;
+#import ca.nengo.ui.lib.actions.LayoutAction;
+#import ca.nengo.ui.lib.actions.StandardAction;
+#import ca.nengo.ui.lib.objects.activities.TrackedAction;
+#import ca.nengo.ui.lib.util.UIEnvironment;
+#import ca.nengo.ui.lib.util.menus.PopupMenuBuilder;
+#import ca.nengo.ui.lib.world.piccolo.WorldImpl;
+#import ca.nengo.ui.lib.world.piccolo.WorldSkyImpl;
+#import edu.uci.ics.jung.graph.Graph;
+#import edu.uci.ics.jung.visualization.Layout;
+
+class ElasticWorld(World):
+    """A World which supports Spring layout.
+
+    Objects within this world attract and repel each other.
+
+    """
+
+    DEFAULT_LAYOUT_BOUNDS = Dimension(1000, 1000)
+
+    def __init__(self, name, sky=None, ground=None):
+        self.layoutBounds = self.DEFAULT_LAYOUT_BOUNDS
+        self.name = name
+        self.sky = sky
+        if sky is None:
+            self.sky = WorldSky()
+        self.ground = ground
+        if ground is None:
+            self.ground = ElasticGround()
+        World.__init__(self, self.name, self.sky, self.ground)
+
+    def applyJungLayout(self, layoutType):
+        DoJungLayout(self, layoutType).doAction()
+
+#    def constructLayoutMenu(self, menu):
+#        menu.addSection("Elastic layout");
+#        if (!getGround().isElasticMode()) {
+#            menu.addAction(new SetElasticLayoutAction("Enable", true));
+#        } else {
+#            menu.addAction(new SetElasticLayoutAction("Disable", false));
+#        }
+
+#        menu.addSection("Apply layout");
+
+#        MenuBuilder algorithmLayoutMenu = menu.addSubMenu("Algorithm");
+
+#        algorithmLayoutMenu.addAction(new JungLayoutAction(FeedForwardLayout.class, "Feed-Forward"));
+#        algorithmLayoutMenu.addAction(new JungLayoutAction(StretchedFeedForwardLayout.class, "Streched Feed-Forward"));
+#        algorithmLayoutMenu.addAction(new JungLayoutAction(CircleLayout.class, "Circle"));
+#        algorithmLayoutMenu.addAction(new JungLayoutAction(ISOMLayout.class, "ISOM"));
+
+#        MenuBuilder layoutSettings = algorithmLayoutMenu.addSubMenu("Settings");
+#        layoutSettings.addAction(new SetLayoutBoundsAction("Set preferred bounds", this));
+
+#    }
+
+    def doFeedForwardLayout(self):
+        JungLayoutAction(self, FeedForwardLayout.class, "Feed-Forward").doAction()
+
+#    def constructMenu(self, menu, posX, posY):
+#        super.constructMenu(menu, posX, posY);
+#        //constructLayoutMenu(menu.addSubMenu("Layout"));
+#    }
+
+#    protected void constructMenu(PopupMenuBuilder menu) {
+#        super.constructMenu(menu, 0.0, 0.0);
+#    }
+
+#    protected Dimension getLayoutBounds() {
+#        return layoutBounds;
+#    }
+
+#    @Override
+#    public ElasticGround getGround() {
+#        return (ElasticGround) super.getGround();
+#    }
+
+#    public void setLayoutBounds(Dimension bounds) {
+#        this.layoutBounds = bounds;
+#    }
+
+
+#import java.awt.geom.Point2D;
+
+#import ca.nengo.model.Network;
+#import ca.nengo.model.Node;
+#import ca.nengo.ui.lib.world.WorldObject;
+#import ca.nengo.ui.lib.world.elastic.ElasticWorld;
+#import ca.nengo.ui.models.NodeContainer;
+#import ca.nengo.ui.models.UINeoNode;
+
+class NengoWorld(ElasticWorld, NodeContainer):
+#    protected void constructMenu(PopupMenuBuilder menu) {
+
+#        super.constructMenu(menu);
+
+#        // Add models section
+#        menu.addSection("Add model");
+
+#        // Create network action
+#        menu.addAction(new CreateModelAction("New Network", this, new CNetwork()));
+
+    def addNodeModel(self, node, posX=None, posY=None):
+        if not isinstance(node, Network):
+            raise ContainerException("Only Networks are allowed to be added to the top-level Window")
+
+        nodeUI = UINeoNode.createNodeUI(node)
+
+        if posX is not None and posY is not None:
+            nodeUI.setOffset(posX, posY)
+            self.ground.addChild(nodeUI)
+        else:
+            self.ground.addChildFancy(nodeUI)
+
+        return nodeUI
+
+    def getNodeModel(self, name):
+        for nodeUI in self.ground.children:
+            if isinstance(nodeUI, UINeoNode):
+                if nodeUI.name == name:
+                    return nodeUI.model
+        return None
+
+    def localToView(self, local):
+        local = self.sky.parentToLocal(local)
+        local = self.sky.localToView(local)
+        return local
+
